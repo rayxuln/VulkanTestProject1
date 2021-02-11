@@ -139,6 +139,22 @@ void VulkanDrawable::RecordCommandBuffer(int currentBuffer, VkCommandBuffer *cmd
 
     InitScissors(cmdDraw);
 
+    // Push constants
+    float mixerValue = 0.7f;
+    int constColor = 3;
+
+    unsigned pushConstants[2] = {};
+    pushConstants[0] = constColor;
+    memcpy(&pushConstants[1], &mixerValue, sizeof(float));
+
+    int maxPushConstantSize = deviceObj->gpuProps.limits.maxPushConstantsSize;
+    if(sizeof(pushConstants) > maxPushConstantSize)
+    {
+        std::cout<<"Push constants size is bigger than max size: "<<maxPushConstantSize<<"!"<<std::endl;
+        exit(-1);
+    }
+    vkCmdPushConstants(*cmdDraw, pipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pushConstants), pushConstants);
+
 //    vkCmdDraw(*cmdDraw, 3, 1, 0, 0);
 //    vkCmdDrawIndexed(*cmdDraw, 6, 1, 0, 0, 0);
     vkCmdDraw(*cmdDraw, 36, 1, 0, 0);
@@ -464,11 +480,17 @@ void VulkanDrawable::CreateDescriptorSetLayout(bool useTexture) {
 }
 
 void VulkanDrawable::CreatePipelineLayout() {
+    const unsigned pushConstantRangeCount = 1;
+    VkPushConstantRange pushConstantRange[pushConstantRangeCount] = {};
+    pushConstantRange[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    pushConstantRange[0].offset = 0;
+    pushConstantRange[0].size = 8;
+
     VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo = {};
     pipelineLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     pipelineLayoutCreateInfo.pNext = nullptr;
-    pipelineLayoutCreateInfo.pushConstantRangeCount = 0;
-    pipelineLayoutCreateInfo.pPushConstantRanges = nullptr;
+    pipelineLayoutCreateInfo.pushConstantRangeCount = pushConstantRangeCount;
+    pipelineLayoutCreateInfo.pPushConstantRanges = pushConstantRange;
     pipelineLayoutCreateInfo.setLayoutCount = (uint32_t) descLayoutList.size();
     pipelineLayoutCreateInfo.pSetLayouts = descLayoutList.data();
 

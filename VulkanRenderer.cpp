@@ -299,7 +299,7 @@ void VulkanRenderer::DestroyDepthBuffer() {
 }
 
 void VulkanRenderer::DestroyCommandBuffer() {
-    VkCommandBuffer cmdBufs[] = { cmdDepthImage };
+    VkCommandBuffer cmdBufs[] = { cmdDepthImage, cmdVertexBuffer };
     vkFreeCommandBuffers(deviceObj->device, cmdPool, sizeof(cmdBufs)/sizeof(VkCommandBuffer), cmdBufs);
 }
 
