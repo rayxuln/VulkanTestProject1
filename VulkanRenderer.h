@@ -10,6 +10,7 @@
 #include "VulkanDrawable.h"
 #include "VulkanShader.h"
 #include "VulkanPipeline.h"
+#include "Wrappers.h"
 
 #define NUM_SAMPLES VK_SAMPLE_COUNT_1_BIT
 
@@ -36,12 +37,14 @@ public:
     VkCommandBuffer cmdDepthImage;
     VkCommandPool cmdPool;
     VkCommandBuffer cmdVertexBuffer;
+    VkCommandBuffer cmdTexture;
 
     VkRenderPass renderPass;
     std::vector<VkFramebuffer> frameBuffers;
     std::vector<VkPipeline*> pipelineList;
 
     int width, height;
+    TextureData texture;
 
     VulkanRenderer(VulkanApplication *app, VulkanDevice *device);
     ~VulkanRenderer();
@@ -52,7 +55,7 @@ public:
     void Update();
 
     void CreatePresentationWindow(const int &width = 800, const int &height = 500);
-    void SetImageLayout(VkImage image, VkImageAspectFlags aspectFlags, VkImageLayout oldImageLayout, VkImageLayout newImageLayout, VkAccessFlagBits srcAccessMask, const VkCommandBuffer &cmdBuf);
+    void SetImageLayout(VkImage image, VkImageAspectFlags aspectFlags, VkImageLayout oldImageLayout, VkImageLayout newImageLayout, const VkImageSubresourceRange &subresourceRange, const VkCommandBuffer &cmdBuf);
 
     static LRESULT CALLBACK WndProc(HWND winHandle, UINT msg, WPARAM wparam, LPARAM lparam);
 
@@ -74,6 +77,8 @@ public:
     void CreateShaders();
     void CreatePipelineStateManagement();
     void CreateDescriptors();
+    void CreateTextureLinear(const char *filename, TextureData *tex, VkImageUsageFlags imageUsageFlags = VK_IMAGE_USAGE_SAMPLED_BIT, VkFormat format = VK_FORMAT_R8G8B8A8_UNORM);
+    void CreateTextureOptimal(const char *filename, TextureData *tex, VkImageUsageFlags imageUsageFlags = VK_IMAGE_USAGE_SAMPLED_BIT, VkFormat format = VK_FORMAT_R8G8B8A8_UNORM);
 
     void DestroyCommandBuffer();
     void DestroyCommandPool();
@@ -85,6 +90,7 @@ public:
     void DestroyFrameBuffers();
     void DestroyPipeline();
     void DestroyDrawableUniformBuffer();
+    void DestroyTextureResource();
 };
 
 

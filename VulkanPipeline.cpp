@@ -67,7 +67,7 @@ bool VulkanPipeline::CreatePipeline(VulkanDrawable *drawableObj, VkPipeline *pip
     rasterizationStateCreateInfo.polygonMode = VK_POLYGON_MODE_FILL;
     rasterizationStateCreateInfo.cullMode = VK_CULL_MODE_BACK_BIT;
     rasterizationStateCreateInfo.frontFace = VK_FRONT_FACE_CLOCKWISE;
-    rasterizationStateCreateInfo.depthClampEnable = VK_FALSE;//includeDepth;
+    rasterizationStateCreateInfo.depthClampEnable = includeDepth;
     rasterizationStateCreateInfo.rasterizerDiscardEnable = VK_FALSE;
     rasterizationStateCreateInfo.depthBiasEnable = VK_FALSE;
     rasterizationStateCreateInfo.depthBiasClamp = 0;

@@ -8,6 +8,7 @@
 #include "Commons.h"
 #include "VulkanDescriptor.h"
 class VulkanRenderer;
+#include "Wrappers.h"
 
 class VulkanDrawable : public VulkanDescriptor{
     std::vector<VkCommandBuffer> cmdDrawList;
@@ -17,6 +18,7 @@ class VulkanDrawable : public VulkanDescriptor{
     VkRect2D scissor;
     VkSemaphore presentCompleteSemaphore;
     VkSemaphore drawingCompleteSemaphore;
+    TextureData *textures;
 
     glm::mat4 projection;
     glm::mat4 view;
@@ -66,6 +68,8 @@ public:
 
     void DestroyCommandBuffer();
     void DestroySynchronizationObjects();
+
+    inline void SetTextures(TextureData *texs) {textures = texs;}
 
     inline void SetPipeline(VkPipeline *vulkanPipeline) {pipeline = vulkanPipeline;}
     inline VkPipeline *GetPipeline() {return pipeline;}

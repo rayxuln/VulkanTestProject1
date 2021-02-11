@@ -126,6 +126,7 @@ void VulkanApplication::DeInitialize() {
     rendererObj->DestroyDrawableSynchronizationObjects();
     rendererObj->DestroyCommandPool();
     rendererObj->DestroyPresentationWindow();
+    rendererObj->DestroyTextureResource();
     deviceObj->DestroyDevice();
     if(debugFlag)
     {
@@ -175,6 +176,7 @@ void VulkanApplication::Resize() {
     rendererObj->GetSwapChain()->DestroySwapChain();
     rendererObj->DestroyDrawableVertexBuffer();
     rendererObj->DestroyDrawableUniformBuffer();
+    rendererObj->DestroyTextureResource();
     rendererObj->DestroyDepthBuffer();
     rendererObj->Initialize();
     Prepare();

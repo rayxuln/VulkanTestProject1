@@ -4,8 +4,10 @@
 
 #include "VulkanRenderer.h"
 #include "VulkanApplication.h"
-#include "Wrappers.h"
 #include "MeshData.h"
+
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb/stb_image.h>
 
 VulkanRenderer::VulkanRenderer(VulkanApplication *_app, VulkanDevice *device) {
     assert(app != nullptr);
@@ -47,6 +49,13 @@ void VulkanRenderer::Initialize() {
     CreateFrameBuffers(includeDepth);
 
     CreateShaders();
+
+    CreateTextureLinear((app->GetWorkingDir() + "/assets/images/img.png").c_str(), &texture, VK_IMAGE_USAGE_SAMPLED_BIT);
+
+    for(auto d:drawableList)
+    {
+        d->SetTextures(&texture);
+    }
 
     CreateDescriptors();
 
@@ -282,7 +291,13 @@ void VulkanRenderer::CreateDepthImage() {
     CommandBufferManager::AllocCommandBuffer(&deviceObj->device, cmdPool, &cmdDepthImage);
     CommandBufferManager::BeginCommandBuffer(cmdDepthImage);
     {
-        SetImageLayout(depth.image, imgViewInfo.subresourceRange.aspectMask, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, (VkAccessFlagBits)0, cmdDepthImage);
+        VkImageSubresourceRange subresourceRange = {};
+        subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+        subresourceRange.baseMipLevel = 0;
+        subresourceRange.levelCount = 1;
+        subresourceRange.layerCount = 1;
+
+        SetImageLayout(depth.image, imgViewInfo.subresourceRange.aspectMask, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, subresourceRange, cmdDepthImage);
     }
     CommandBufferManager::EndCommandBuffer(cmdDepthImage);
     CommandBufferManager::SubmitCommandBuffer(deviceObj->queue, &cmdDepthImage);
@@ -316,7 +331,7 @@ void VulkanRenderer::BuildSwapChainAndDepthImage() {
 }
 
 void VulkanRenderer::SetImageLayout(VkImage image, VkImageAspectFlags aspectFlags, VkImageLayout oldImageLayout,
-                                    VkImageLayout newImageLayout, VkAccessFlagBits srcAccessMask,
+                                    VkImageLayout newImageLayout, const VkImageSubresourceRange &subresourceRange,
                                     VkCommandBuffer const &cmdBuf) {
     assert(cmdBuf != VK_NULL_HANDLE);
 
@@ -325,19 +340,26 @@ void VulkanRenderer::SetImageLayout(VkImage image, VkImageAspectFlags aspectFlag
     VkImageMemoryBarrier imgMemoryBarrier = {};
     imgMemoryBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
     imgMemoryBarrier.pNext = nullptr;
-    imgMemoryBarrier.srcAccessMask = srcAccessMask;
+    imgMemoryBarrier.srcAccessMask = 0;
     imgMemoryBarrier.dstAccessMask = 0;
     imgMemoryBarrier.oldLayout = oldImageLayout;
     imgMemoryBarrier.newLayout = newImageLayout;
     imgMemoryBarrier.image = image;
-    imgMemoryBarrier.subresourceRange.aspectMask = aspectFlags;
-    imgMemoryBarrier.subresourceRange.baseMipLevel = 0;
-    imgMemoryBarrier.subresourceRange.levelCount = 1;
-    imgMemoryBarrier.subresourceRange.layerCount = 1;
+    imgMemoryBarrier.subresourceRange = subresourceRange;
 
-    if(oldImageLayout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
-    {
-        imgMemoryBarrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    switch (oldImageLayout) {
+        case VK_IMAGE_LAYOUT_UNDEFINED:
+            imgMemoryBarrier.srcAccessMask = 0;
+            break;
+        case VK_IMAGE_LAYOUT_PREINITIALIZED:
+            imgMemoryBarrier.srcAccessMask = VK_ACCESS_HOST_WRITE_BIT;
+            break;
+        case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
+            imgMemoryBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            break;
+        case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
+            imgMemoryBarrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+            break;
     }
 
     switch (newImageLayout)
@@ -348,7 +370,7 @@ void VulkanRenderer::SetImageLayout(VkImage image, VkImageAspectFlags aspectFlag
             break;
 
         case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
-            imgMemoryBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            imgMemoryBarrier.srcAccessMask |= VK_ACCESS_TRANSFER_WRITE_BIT;
             imgMemoryBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
             break;
 
@@ -364,9 +386,23 @@ void VulkanRenderer::SetImageLayout(VkImage image, VkImageAspectFlags aspectFlag
     VkPipelineStageFlags srcStages = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
     VkPipelineStageFlags dstStages = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
 
+    if(imgMemoryBarrier.srcAccessMask & VK_ACCESS_HOST_WRITE_BIT)
+    {
+        srcStages |= VK_PIPELINE_STAGE_HOST_BIT;
+    }
+    if(imgMemoryBarrier.srcAccessMask & VK_ACCESS_TRANSFER_WRITE_BIT)
+    {
+        srcStages |= VK_PIPELINE_STAGE_TRANSFER_BIT;
+    }
+
+
     if(imgMemoryBarrier.dstAccessMask & VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT)
     {
-        dstStages = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+        dstStages |= VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+    }
+    if(imgMemoryBarrier.dstAccessMask & VK_ACCESS_SHADER_READ_BIT)
+    {
+        dstStages |= VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
     }
 
     vkCmdPipelineBarrier(cmdBuf, srcStages, dstStages, 0, 0, nullptr, 0, nullptr, 1, &imgMemoryBarrier);
@@ -380,7 +416,8 @@ void VulkanRenderer::CreateVertexBuffer() {
     {
 //        d->CreateVertexBuffer(triangleData, sizeof(triangleData), sizeof(triangleData[0]), false);
 //        d->CreateVertexIndex(squareIndices, sizeof(squareIndices), 0);
-        d->CreateVertexBuffer(geometryData, sizeof(geometryData), sizeof(geometryData[0]), false);
+//        d->CreateVertexBuffer(geometryData, sizeof(geometryData), sizeof(geometryData[0]), false);
+        d->CreateVertexBuffer(geometryDataWithUV, sizeof(geometryDataWithUV), sizeof(geometryDataWithUV[0]), false);
     }
 
     CommandBufferManager::EndCommandBuffer(cmdVertexBuffer);
@@ -506,8 +543,11 @@ void VulkanRenderer::CreateShaders() {
 
     std::string workingDir = app->GetWorkingDir();
 
-    auto vert = (uint32_t *)Utils::ReadFile(workingDir + "/shaders/draw_vert.spv", &vertSize);
-    auto frag = (uint32_t *)Utils::ReadFile(workingDir + "/shaders/draw_frag.spv", &fragSize);
+//    auto vert = (uint32_t *)Utils::ReadFile(workingDir + "/assets/shaders/draw_vert.spv", &vertSize);
+//    auto frag = (uint32_t *)Utils::ReadFile(workingDir + "/assets/shaders/draw_frag.spv", &fragSize);
+
+    auto vert = (uint32_t *)Utils::ReadFile(workingDir + "/assets/shaders/tex_vert.spv", &vertSize);
+    auto frag = (uint32_t *)Utils::ReadFile(workingDir + "/assets/shaders/tex_frag.spv", &fragSize);
 
     shaderObj.BuildShaderModuleWithSPV(vert, vertSize, frag, fragSize);
 
@@ -579,9 +619,187 @@ void VulkanRenderer::DestroyDrawableUniformBuffer() {
 void VulkanRenderer::CreateDescriptors() {
     for(auto d:drawableList)
     {
-        d->CreateDescriptorSetLayout(false);
-        d->CreateDescriptor(false);
+        d->CreateDescriptorSetLayout(true);
+        d->CreateDescriptor(true);
     }
+}
+
+void VulkanRenderer::CreateTextureLinear(const char *filename, TextureData *tex, VkImageUsageFlags imageUsageFlags,
+                                         VkFormat format) {
+    std::cout<<"Loading image file: "<<filename<<std::endl;
+//    gli::texture2D image2D(gli::load(filename));
+    int w, h, n;
+    uint8_t *imageData = stbi_load(filename, &w, &h, &n, 4);
+
+    if(imageData == nullptr)
+    {
+        std::cout<<"Can't load image: "<<filename<<std::endl;
+        exit(-1);
+    }
+
+    tex->width = uint32_t(w);
+    tex->height = uint32_t(h);
+
+    tex->mipMapLevels = uint32_t(1);
+
+    VkImageCreateInfo imageCreateInfo = {};
+    imageCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    imageCreateInfo.pNext = nullptr;
+    imageCreateInfo.flags = 0;
+    imageCreateInfo.imageType = VK_IMAGE_TYPE_2D;
+    imageCreateInfo.format = format;
+    imageCreateInfo.extent.width = tex->width;
+    imageCreateInfo.extent.height = tex->height;
+    imageCreateInfo.extent.depth = 1;
+    imageCreateInfo.mipLevels = tex->mipMapLevels;
+    imageCreateInfo.arrayLayers = 1;
+    imageCreateInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+    imageCreateInfo.queueFamilyIndexCount = 0;
+    imageCreateInfo.pQueueFamilyIndices = nullptr;
+    imageCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    imageCreateInfo.usage = imageUsageFlags;
+    imageCreateInfo.initialLayout = VK_IMAGE_LAYOUT_PREINITIALIZED;
+    imageCreateInfo.tiling = VK_IMAGE_TILING_LINEAR;
+
+    VkResult res;
+    res = vkCreateImage(deviceObj->device, &imageCreateInfo, nullptr, &tex->image);
+    assert(res == VK_SUCCESS);
+
+    VkMemoryRequirements memReq;
+    vkGetImageMemoryRequirements(deviceObj->device, tex->image, &memReq);
+
+    VkMemoryAllocateInfo &memoryAllocateInfo = tex->memoryAllocateInfo;
+    memoryAllocateInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    memoryAllocateInfo.pNext = nullptr;
+    memoryAllocateInfo.allocationSize = memReq.size;
+    memoryAllocateInfo.memoryTypeIndex = 0;
+
+    bool pass = deviceObj->MemoryTypeFromProperties(memReq.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, &memoryAllocateInfo.memoryTypeIndex);
+    assert(pass);
+
+    res = vkAllocateMemory(deviceObj->device, &memoryAllocateInfo, nullptr, &tex->mem);
+    assert(res == VK_SUCCESS);
+
+    res = vkBindImageMemory(deviceObj->device, tex->image, tex->mem, 0);
+    assert(res == VK_SUCCESS);
+
+    VkImageSubresource subresource = {};
+    subresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    subresource.mipLevel = 0;
+    subresource.arrayLayer = 0;
+
+    VkSubresourceLayout layout;
+    uint8_t *data;
+
+    vkGetImageSubresourceLayout(deviceObj->device, tex->image, &subresource, &layout);
+
+    res = vkMapMemory(deviceObj->device, tex->mem, 0, memoryAllocateInfo.allocationSize, 0, (void**)&data);
+    assert(res == VK_SUCCESS);
+
+    uint8_t *dataTemp = imageData;
+    for (int y=0; y<h; ++y)
+    {
+        size_t imageSize = w * 4;
+        memcpy(data, dataTemp, imageSize);
+        dataTemp += imageSize;
+
+        data += layout.rowPitch;
+    }
+
+    vkUnmapMemory(deviceObj->device, tex->mem);
+
+    CommandBufferManager::AllocCommandBuffer(&deviceObj->device, cmdPool, &cmdTexture);
+    CommandBufferManager::BeginCommandBuffer(cmdTexture);
+
+    VkImageSubresourceRange subresourceRange = {};
+    subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    subresourceRange.baseMipLevel = 0;
+    subresourceRange.levelCount = tex->mipMapLevels;
+    subresourceRange.layerCount = 1;
+
+//    tex->imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    tex->imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+    SetImageLayout(tex->image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_PREINITIALIZED, tex->imageLayout, subresourceRange, cmdTexture);
+
+    CommandBufferManager::EndCommandBuffer(cmdTexture);
+
+    VkFence fence;
+    VkFenceCreateInfo fenceCreateInfo = {};
+    fenceCreateInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    fenceCreateInfo.pNext = nullptr;
+    fenceCreateInfo.flags = 0;
+
+    vkCreateFence(deviceObj->device, &fenceCreateInfo, nullptr, &fence);
+
+    VkSubmitInfo submitInfo = {};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.pNext = nullptr;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &cmdTexture;
+
+    CommandBufferManager::SubmitCommandBuffer(deviceObj->queue, &cmdTexture, &submitInfo, fence);
+
+    vkWaitForFences(deviceObj->device, 1, &fence, VK_TRUE, UINT64_MAX);
+    vkDestroyFence(deviceObj->device, fence, nullptr);
+
+    VkSamplerCreateInfo samplerCreateInfo = {};
+    samplerCreateInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    samplerCreateInfo.pNext = nullptr;
+    samplerCreateInfo.flags = 0;
+    samplerCreateInfo.magFilter = VK_FILTER_LINEAR;
+    samplerCreateInfo.minFilter = VK_FILTER_LINEAR;
+    samplerCreateInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+    samplerCreateInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerCreateInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerCreateInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerCreateInfo.mipLodBias = 0.0f;
+    if(deviceObj->deviceFeatures.samplerAnisotropy == VK_TRUE)
+    {
+        samplerCreateInfo.anisotropyEnable = VK_TRUE;
+        samplerCreateInfo.maxAnisotropy = 8;
+    }else
+    {
+        samplerCreateInfo.anisotropyEnable = VK_FALSE;
+        samplerCreateInfo.maxAnisotropy = 1;
+    }
+    samplerCreateInfo.compareOp = VK_COMPARE_OP_NEVER;
+    samplerCreateInfo.minLod = 0.0f;
+    samplerCreateInfo.maxLod = 0.0f;
+    samplerCreateInfo.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;
+    samplerCreateInfo.unnormalizedCoordinates = VK_FALSE;
+
+    res = vkCreateSampler(deviceObj->device, &samplerCreateInfo, nullptr, &tex->sampler);
+    assert(res == VK_SUCCESS);
+
+    VkImageViewCreateInfo viewCreateInfo = {};
+    viewCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    viewCreateInfo.pNext = nullptr;
+    viewCreateInfo.flags = 0;
+    viewCreateInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    viewCreateInfo.format = format;
+    viewCreateInfo.components.r = VK_COMPONENT_SWIZZLE_R;
+    viewCreateInfo.components.g = VK_COMPONENT_SWIZZLE_G;
+    viewCreateInfo.components.b = VK_COMPONENT_SWIZZLE_B;
+    viewCreateInfo.components.a = VK_COMPONENT_SWIZZLE_A;
+    viewCreateInfo.subresourceRange = subresourceRange;
+    viewCreateInfo.subresourceRange.levelCount = 1;
+    viewCreateInfo.image = tex->image;
+
+    res = vkCreateImageView(deviceObj->device, &viewCreateInfo, nullptr, &tex->view);
+    assert(res == VK_SUCCESS);
+
+    tex->descriptorImageInfo.sampler = tex->sampler;
+    tex->descriptorImageInfo.imageView = tex->view;
+    tex->descriptorImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+    stbi_image_free(imageData);
+}
+
+void VulkanRenderer::DestroyTextureResource() {
+    vkFreeMemory(deviceObj->device, texture.mem, nullptr);
+    vkDestroySampler(deviceObj->device, texture.sampler, nullptr);
+    vkDestroyImage(deviceObj->device, texture.image, nullptr);
+    vkDestroyImageView(deviceObj->device, texture.view, nullptr);
 }
 
 

@@ -26,6 +26,7 @@ public:
     uint32_t graphicsQueueWithPresentIndex;
     uint32_t queueFamilyCount;
     VulkanLayerAndExtension layerAndExtension;
+    VkPhysicalDeviceFeatures deviceFeatures;
 
     VkResult CreateDevice(std::vector<const char*> &layers, std::vector<const char*> &extensions);
     void DestroyDevice();

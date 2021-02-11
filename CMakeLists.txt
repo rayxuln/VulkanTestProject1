@@ -53,21 +53,19 @@ endif()
 
 target_link_libraries(VulkanTestProject1 ${VULKAN_LINK_LIST})
 
-# Copy shaders
-if(ENABLE_GLSL_TRANSLATION)
-    add_custom_command(
-            TARGET VulkanTestProject1
-            PRE_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/shaders ${CMAKE_BINARY_DIR}/shaders
-            COMMENT "Copying shaders..."
-    )
-else()
-    set(GLVALIDATION_EXE ${VULKAN_PATH}/Bin/glslangValidator.exe)
-    add_custom_command(
-            TARGET VulkanTestProject1
-            PRE_BUILD
-            COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/shaders
-            COMMAND ${CMAKE_SOURCE_DIR}/compile_shaders.bat ${CMAKE_SOURCE_DIR}/shaders ${CMAKE_BINARY_DIR}/shaders ${GLVALIDATION_EXE}
-            COMMENT "Compiling shaders to spir-v"
-    )
-endif()
+# Copy assets
+set(ASSETS_DIR ${CMAKE_SOURCE_DIR}/assets)
+add_custom_command(
+        TARGET VulkanTestProject1
+        PRE_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory ${ASSETS_DIR} ${CMAKE_BINARY_DIR}/assets
+        COMMENT "Copying shaders..."
+)
+# Compile shaders
+set(GLVALIDATION_EXE ${VULKAN_PATH}/Bin/glslangValidator.exe)
+add_custom_command(
+        TARGET VulkanTestProject1
+        PRE_BUILD
+        COMMAND ${CMAKE_SOURCE_DIR}/compile_shaders.bat ${ASSETS_DIR}/shaders ${CMAKE_BINARY_DIR}/assets/shaders ${GLVALIDATION_EXE}
+        COMMENT "Compiling shaders to spir-v"
+)

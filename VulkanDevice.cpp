@@ -27,6 +27,12 @@ VkResult VulkanDevice::CreateDevice(std::vector<const char *> &layers, std::vect
     queueInfo.queueCount = 1;
     queueInfo.pQueuePriorities = queuePriorities;
 
+    vkGetPhysicalDeviceFeatures(*gpu, &deviceFeatures);
+
+    VkPhysicalDeviceFeatures setEnabledFeatures = {VK_FALSE};
+    setEnabledFeatures.samplerAnisotropy = deviceFeatures.samplerAnisotropy;
+    setEnabledFeatures.depthClamp = deviceFeatures.depthClamp;
+
     VkDeviceCreateInfo deviceInfo = {};
     deviceInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
     deviceInfo.pNext = nullptr;
@@ -36,7 +42,7 @@ VkResult VulkanDevice::CreateDevice(std::vector<const char *> &layers, std::vect
     deviceInfo.ppEnabledLayerNames = nullptr;
     deviceInfo.enabledExtensionCount = extensions.size();
     deviceInfo.ppEnabledExtensionNames = extensions.empty() ? nullptr : extensions.data();
-    deviceInfo.pEnabledFeatures = nullptr;
+    deviceInfo.pEnabledFeatures = &setEnabledFeatures;
 
     res = vkCreateDevice(*gpu, &deviceInfo, nullptr, &device);
     assert(res == VK_SUCCESS);
